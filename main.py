@@ -1,78 +1,91 @@
+import os
 import time
+from xml.dom.minidom import Element
 import uiautomator2 as u2
+from choice import select_index_from_list, select_key_from_map
 from ui_manager import UIManager
 import sys
 import click
 
-from word_fuzzer import WordFuzzer
+
+WORD_FILES_DIR = "wordfiles"
+
 
 def main():
-    package_name= sys.argv[1]
-    word_file = sys.argv[2]
+    package_name = sys.argv[1]
     ui_manager = UIManager(package_name)
-    fuzzer = WordFuzzer()
     _STATE = "RUNNING"
     time.sleep(1)
     while _STATE == "RUNNING":
         resources = ui_manager.get_page_resources()
-        selected_field = select_resource(resources,"Type in a number to select an input field to fuzz")
-        selected_button = select_resource(resources,"Type in a number to select a submit button")
+        word_files = list_word_files()
+
+        selected_pairs, selected_button = select_resource(
+            resources, word_files)
         try:
-            if (selected_field is not None and selected_button is not None):
-                with open(word_file,'r') as wf:
+            button = ui_manager.get_ui_from_resource(
+                selected_button)
+            for field_resource, word_file in selected_pairs:
+                print(f"Fuzzing {field_resource.attrib['resource-id']}")
+                field = ui_manager.get_ui_from_resource(field_resource)
+                with open(word_file, 'r') as wf:
                     lines = wf.readlines()
                     for line in lines:
-                        field = ui_manager.get_ui_by_resource_id(selected_field.attrib['resource-id'])
-                        button = ui_manager.get_ui_by_resource_id(selected_button.attrib['resource-id'])
-                        fuzzer.fuzz(field,button,line)
-            print("===============================================")  
+                        fuzz(field, button, line)
+                print("===============================================")
         except Exception as e:
             print(e)
-            if isinstance(e,u2.SessionBrokenError):
+            if isinstance(e, u2.SessionBrokenError):
                 print("application crashed")
                 print(e)
         finally:
             choices = {
-                'q':"Quit",
-                'c':'Continue',
+                'q': "Quit",
+                'r': 'Retry',
                 'b': 'Go back'
             }
-            selected = None
-            while (selected is None):
-                selected = select_keys(choices,"Please enter")
-            if selected == 'Quit':
+            decision = select_key_from_map(choices, "Please enter")
+            if decision == 'q':
                 ui_manager.device.app_stop(package_name)
                 _STATE = "STOP"
-            elif selected == "Continue":
+            elif decision == "r":
                 continue
-            elif selected == 'Go back':
+            elif decision == 'b':
                 ui_manager.go_back()
                 continue
 
-def select_keys(map: dict[str,str],message):
-    prompt = '\n'.join(f'{k}) {v}' for i, (k,v) in enumerate(map.items()))
 
-    prompt = prompt + f"\n{message}"
-    key = click.prompt(prompt,type=str,show_choices=True)
-    print(key)
-    if key in map:
-        res = map[key]
-        click.echo(f"You selected {map[key]}.")
-        return res
-    return None
-        
-def select_resource(resources: list,message: str):
-    prompt = '\n'.join(f'{i+1}) {c.attrib["resource-id"]}' for i, c in enumerate(resources))
+def fuzz(field, button, word):
+    field.send_keys(word)
+    button.click()
+    field.clear_text()
 
-    prompt = prompt + f"\n{message}"
-    index = click.prompt(prompt,type=int,show_choices=True)
-    if (index < 0 or index > len(resources)):
-        click.echo("You did not select anything.")
-        resource = None
-    else:
-        resource = resources[index-1]
-        click.echo(f"You selected {resource.attrib['resource-id']}.")
-    return resource
+
+def list_word_files(withFullPath=False):
+    return os.listdir(WORD_FILES_DIR) if not withFullPath else [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
+
+
+def select_resource(resources: Element, wordfiles: list):
+    decision = ""
+    selected_pairs = []
+    choices = [r.attrib['resource-id'] for r in resources]
+
+    decisionMap = {
+        "c": "Continue",
+        "a": "Add more inputs"
+    }
+    while not decision or decision == "a":
+        selected_field = resources[select_index_from_list(
+            choices, "Type in a number to select an input field to fuzz")]
+        selected_wordfile = wordfiles[select_index_from_list(
+            wordfiles, f"Select a word file to fuzz input {selected_field.attrib['resource-id']}")]
+        selected_pairs.append((selected_field, selected_wordfile))
+        decision = select_key_from_map(
+            decisionMap, "Do you want to continue[c] or add more inputs to fuzz[a]?")
+    button = resources[select_index_from_list(
+        choices, "Type in a number to select a submit button")]
+    return selected_pairs, button
+
 
 if __name__ == "__main__":
     main()
