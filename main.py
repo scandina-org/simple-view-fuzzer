@@ -1,3 +1,4 @@
+import io
 import os
 import time
 from xml.dom.minidom import Element
@@ -5,7 +6,6 @@ import uiautomator2 as u2
 from choice import select_index_from_list, select_key_from_map
 from ui_manager import UIManager
 import sys
-import click
 
 
 WORD_FILES_DIR = "wordfiles"
@@ -19,20 +19,17 @@ def main():
     while _STATE == "RUNNING":
         resources = ui_manager.get_page_resources()
         word_files = list_word_files()
-
         selected_pairs, selected_button = select_resource(
             resources, word_files)
         try:
             button = ui_manager.get_ui_from_resource(
                 selected_button)
+            field_word_pairs = []
             for field_resource, word_file in selected_pairs:
-                print(f"Fuzzing {field_resource.attrib['resource-id']}")
                 field = ui_manager.get_ui_from_resource(field_resource)
-                with open(word_file, 'r') as wf:
-                    lines = wf.readlines()
-                    for line in lines:
-                        fuzz(field, button, line)
-                print("===============================================")
+                word_stream = open(word_file,'r')
+                field_word_pairs.append((field,word_stream))
+            fuzz_pairwise(field_word_pairs,button)
         except Exception as e:
             print(e)
             if isinstance(e, u2.SessionBrokenError):
@@ -55,14 +52,22 @@ def main():
                 continue
 
 
-def fuzz(field, button, word):
-    field.send_keys(word)
-    button.click()
-    field.clear_text()
+def fuzz_pairwise(pairs,button):
+    emptyLineCount = 0
+    while emptyLineCount < len(pairs):
+        emptyLineCount = 0
+        for field,word_stream in pairs:
+            line = word_stream.readline()
+            if not line:
+                emptyLineCount += 1
+            else:
+                print(f"Fuzzing {field.info['resourceName']} with: {line}")
+                field.send_keys(line)
+        button.click()
+        print("===================================================\n")
 
-
-def list_word_files(withFullPath=False):
-    return os.listdir(WORD_FILES_DIR) if not withFullPath else [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
+def list_word_files():
+    return [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
 
 
 def select_resource(resources: Element, wordfiles: list):
@@ -78,7 +83,7 @@ def select_resource(resources: Element, wordfiles: list):
         selected_field = resources[select_index_from_list(
             choices, "Type in a number to select an input field to fuzz")]
         selected_wordfile = wordfiles[select_index_from_list(
-            wordfiles, f"Select a word file to fuzz input {selected_field.attrib['resource-id']}")]
+            [os.path.basename(f) for f in wordfiles], f"Select a word file to fuzz input {selected_field.attrib['resource-id']}")]
         selected_pairs.append((selected_field, selected_wordfile))
         decision = select_key_from_map(
             decisionMap, "Do you want to continue[c] or add more inputs to fuzz[a]?")

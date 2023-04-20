@@ -2,6 +2,7 @@ import click
 
 
 def select_key_from_map(map: "dict[str,str]", message):
+    print("=============================================")
     prompt = '\n'.join(f'{k}) {v}' for i, (k, v) in enumerate(map.items()))
     prompt = prompt + f"\n{message}"
     key = ""
@@ -13,6 +14,7 @@ def select_key_from_map(map: "dict[str,str]", message):
 
 
 def select_index_from_list(arr: list, message: str):
+    print("=============================================")
     prompt = '\n'.join(f'{i+1}) {c}' for i, c in enumerate(arr))
     index = -1
     while index < 0:
@@ -23,4 +25,4 @@ def select_index_from_list(arr: list, message: str):
             index = -1
         else:
             click.echo(f"You selected {arr[index-1]}.")
-        return index
+            return index-1
