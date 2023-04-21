@@ -12,6 +12,9 @@ WORD_FILES_DIR = "wordfiles"
 
 
 def main():
+    if len(sys.argv) <= 1:
+        print("Empty package name")
+        return
     package_name = sys.argv[1]
     ui_manager = UIManager(package_name)
     _STATE = "RUNNING"
