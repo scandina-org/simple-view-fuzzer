@@ -1,3 +1,4 @@
+import asyncio
 import io
 import os
 import time
@@ -32,12 +33,11 @@ def main():
                 field = ui_manager.get_ui_from_resource(field_resource)
                 word_stream = open(word_file,'r')
                 field_word_pairs.append((field,word_stream))
-            fuzz_pairwise(field_word_pairs,button)
+            fuzz_pairwise(ui_manager,field_word_pairs,button)
         except Exception as e:
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("Application Crash")
             print(e)
-            if isinstance(e, u2.SessionBrokenError):
-                print("application crashed")
-                print(e)
         finally:
             choices = {
                 'q': "Quit",
@@ -55,7 +55,7 @@ def main():
                 continue
 
 
-def fuzz_pairwise(pairs,button):
+def fuzz_pairwise(ui,pairs,button):
     emptyLineCount = 0
     while emptyLineCount < len(pairs):
         emptyLineCount = 0
@@ -67,6 +67,11 @@ def fuzz_pairwise(pairs,button):
                 print(f"Fuzzing {field.info['resourceName']} with: {line}")
                 field.send_keys(line)
         button.click()
+        errors = ui.get_error_log()
+        if (len(errors) > 0):
+            for err in errors: print(err)
+        else:
+            print("No error found.")
         print("===================================================\n")
 
 def list_word_files():
