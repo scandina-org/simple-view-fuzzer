@@ -1,3 +1,8 @@
+from queue import Empty, Queue
+import select
+import subprocess
+from threading import Thread
+import time
 from xml.dom.minidom import Element
 import xml.etree.ElementTree as ET
 import uiautomator2 as u2
@@ -45,3 +50,26 @@ class UIManager:
             self.device.press("back")
         else:
             self.device.swipe_ext(Direction.HORIZ_FORWARD)
+    def enqueue_output(self,out, queue):
+        for line in iter(out.readline, b''):
+            queue.put(line.decode().strip())
+        out.close()
+    def get_error_log(self):
+        process_id = self.session._pidof_app(self.package_name)
+        args = ['adb','shell','logcat','*:E','-b','main,crash','--pid',str(process_id)]
+        adb_process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+        errors = []
+        q = Queue()
+        t = Thread(target=self.enqueue_output, args=(adb_process.stdout, q))
+        t.daemon = True # thread dies with the program
+        t.start()
+        while len(errors) < 10:
+            try:  
+                line = q.get(timeout=1) # or q.get(timeout=.1)
+            except Empty:
+                break
+            else:
+                errors.append(line)
+        adb_process.terminate()
+        return errors
+        
