@@ -2,14 +2,19 @@ import asyncio
 import io
 import os
 import time
+from typing import IO
 from xml.dom.minidom import Element
 import uiautomator2 as u2
 from choice import select_index_from_list, select_key_from_map
 from ui_manager import UIManager
 import sys
+from androguard.core.bytecodes import apk
+from colorify import *
 
 
 WORD_FILES_DIR = "wordfiles"
+if sys.platform == 'win32':
+    init_colorify()
 
 
 def main():
@@ -17,87 +22,142 @@ def main():
         print("Empty package name")
         return
     package_name = sys.argv[1]
-    ui_manager = UIManager(package_name)
+    if package_name[-4:] == ".apk":
+        a = apk.APK(package_name)
+        package_name = a.get_package()
     _STATE = "RUNNING"
     time.sleep(1)
+
+    print("Welcome to Auto-fuzzer")
+    print("type " + colorify("help", C.orange) + " to get started")
+    ui_manager = UIManager(package_name)
+
+    print(colorify(f"Found Running Application: {package_name}", C.green))
     while _STATE == "RUNNING":
         resources = ui_manager.get_page_resources()
-        word_files = list_word_files()
-        selected_pairs, selected_button = select_resource(
-            resources, word_files)
-        try:
-            button = ui_manager.get_ui_from_resource(
-                selected_button)
-            field_word_pairs = []
-            for field_resource, word_file in selected_pairs:
-                field = ui_manager.get_ui_from_resource(field_resource)
-                word_stream = open(word_file,'r')
-                field_word_pairs.append((field,word_stream))
-            fuzz_pairwise(ui_manager,field_word_pairs,button)
-        except Exception as e:
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("Application Crash")
-            print(e)
-        finally:
-            choices = {
-                'q': "Quit",
-                'r': 'Retry',
-                'b': 'Go back'
-            }
-            decision = select_key_from_map(choices, "Please enter")
-            if decision == 'q':
-                ui_manager.device.app_stop(package_name)
-                _STATE = "STOP"
-            elif decision == "r":
-                continue
-            elif decision == 'b':
-                ui_manager.go_back()
-                continue
+        command = input("Please Enter your command:")
 
+        command_args = command.split(" ")
 
-def fuzz_pairwise(ui,pairs,button):
-    emptyLineCount = 0
-    while emptyLineCount < len(pairs):
-        emptyLineCount = 0
-        for field,word_stream in pairs:
-            line = word_stream.readline()
-            if not line:
-                emptyLineCount += 1
+        if command_args[0].lower() == "fuzz":
+            if "-b" in command_args and "-w" in command_args and "-f" in command_args:
+                options = get_fuzz_options(command_args)
+                try:
+                    fields = [resources[int(i)] for i in options['field_indx']]
+                    button = resources[int(options['button_indx'][0])]
+                    wordfile = open(options['wordlist'], 'r')
+                except Exception as e:
+                    print(e)
+                    print("Invalid command, check " +
+                          colorify('help', C.orange))
+                    continue
+                try:
+                    fuzz(ui_manager, fields, button, wordfile)
+                except u2.exceptions.UiObjectNotFoundError as e:
+                    print(
+                        colorify("Cannot interact with selected user interface", C.red))
+                    print("Application may have crashed.")
+                    print("type 'launch' to relaunch the package.")
+                    continue
+
             else:
-                print(f"Fuzzing {field.info['resourceName']} with: {line}")
-                field.send_keys(line)
-        button.click()
+                print("Invalid command, check " + colorify('help', C.orange))
+
+        elif command_args[0].lower() == "exit":
+            print(colorify("Bye!", C.red))
+            return
+
+        elif command_args[0].lower() == "list":
+            resources = ui_manager.get_page_resources()
+            for i in range(len(resources)):
+                re = resources[i]
+                print(f"{i}) {re.attrib['resource-id']}")
+            # print list of fuzzable field resource id
+
+        elif command_args[0].lower() == "help":
+            print_help_text()
+        elif command_args[0].lower() == "launch":
+            ui_manager.reconnect_session()
+        else:
+            print("Unknown command. How about we start with " +
+                  colorify('help', C.orange))
+
+
+def get_fuzz_options(args):
+    button_inputs = []
+    field_inputs = []
+    if "-b" in args and "-w" in args and "-f" in args:
+        b_index = args.index("-b")
+        w_index = args.index("-w")
+        f_index = args.index("-f")
+        temp_button_inputs = args[b_index + 1:]
+        if b_index == max(b_index, w_index, f_index):
+            button_inputs = temp_button_inputs
+        else:
+            next_index = None
+            for i, item in enumerate(temp_button_inputs):
+                if item.startswith("-"):
+                    next_index = i
+                    break
+            button_inputs = temp_button_inputs[:next_index]
+
+        temp_field_inputs = args[f_index + 1:]
+        if f_index == max(b_index, w_index, f_index):
+            field_inputs = args[f_index + 1:]
+        else:
+            next_index = None
+            for i, item in enumerate(temp_field_inputs):
+                if item.startswith("-"):
+                    next_index = i
+                    break
+            field_inputs = temp_field_inputs[:next_index]
+
+        wordlist_inputs = args[w_index + 1]
+        print({"wordlist": wordlist_inputs,
+              "button_indx": button_inputs, "field_indx": field_inputs})
+        return {"wordlist": wordlist_inputs, "button_indx": button_inputs, "field_indx": field_inputs}
+
+
+def fuzz(ui: UIManager, fields, button, wordfile: IO):
+    words = wordfile.readlines()
+    for word in words:
+        formatted_word = word.rstrip('\r\n')
+        for field in fields:
+            field_ui = ui.get_ui_from_resource(field)
+            print(
+                f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
+
+            field_ui.send_keys(formatted_word)
+        print(f"Fuzzing selected fields with {formatted_word}\n")
+        button_ui = ui.get_ui_from_resource(button)
+        button_ui.click()
         errors = ui.get_error_log()
         if (len(errors) > 0):
-            for err in errors: print(err)
+            print(colorify("-----------ERROR FOUND----------\n", C.red))
+            for err in errors:
+                print(colorify(err, C.red))
+            print(colorify("\n--------------------------------", C.red))
         else:
-            print("No error found.")
+            print(colorify("No error found.", C.green))
         print("===================================================\n")
+
 
 def list_word_files():
     return [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
 
 
-def select_resource(resources: Element, wordfiles: list):
-    decision = ""
-    selected_pairs = []
-    choices = [r.attrib['resource-id'] for r in resources]
+def print_help_text():
+    print(colorify("\nlist", C.cyan) +
+          "\n\tget all available fuzzable fields in the current page along with the action button")
+    print(colorify("\nfuzz -f [fields] -w [wordlist] -b [button]", C.cyan) +
+          "\n\tfuzz through all the specified fields with the wordlist")
+    print("\n\tfor example: fuzz -f 1 2 -w ./dummies.txt -b a")
+    print("\tThis command will fuzz through the the first and second fields from the 'list' command with the 'dummies.txt' wordlist and uses the the first button from the 'list' command")
+    print(colorify("\nlaunch", C.cyan))
+    print("\n\tlaunch or relaunch target package")
 
-    decisionMap = {
-        "c": "Continue",
-        "a": "Add more inputs"
-    }
-    while not decision or decision == "a":
-        selected_field = resources[select_index_from_list(
-            choices, "Type in a number to select an input field to fuzz")]
-        selected_wordfile = wordfiles[select_index_from_list(
-            [os.path.basename(f) for f in wordfiles], f"Select a word file to fuzz input {selected_field.attrib['resource-id']}")]
-        selected_pairs.append((selected_field, selected_wordfile))
-        decision = select_key_from_map(
-            decisionMap, "Do you want to continue[c] or add more inputs to fuzz[a]?")
-    button = resources[select_index_from_list(
-        choices, "Type in a number to select a submit button")]
-    return selected_pairs, button
+    print(colorify("\nhelp", C.cyan) + "\n\twhat you are seeing")
+    print(colorify("\nexit", C.cyan) + "\n\tquit this tool")
 
 
 if __name__ == "__main__":
