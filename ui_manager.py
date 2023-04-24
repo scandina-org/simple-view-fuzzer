@@ -32,10 +32,23 @@ class UIManager:
             # Check if the node has a "resource-id" attribute
             if 'resource-id' in node.attrib:
                 # Check if the attribute value is not empty
-                if node.attrib['resource-id'] and self.package_name in node.attrib['resource-id']:
+                if node.attrib['resource-id']:
                     # Yield Resource id
                     resources.append(node)
         return resources
+
+    def get_page_package_resource(self):
+        return [node for node in self.get_page_resources() if self.package_name in node.attrib['resource-id']]
+
+    def is_text_suggestion_on(self):
+        resources = self.get_page_resources()
+        bad_rid = ["android:id/suggestionWindowContainer",
+                   "android:id/addToDictionaryButton"]
+        for node in resources:
+            rid = node.attrib['resource-id']
+            if rid in bad_rid:
+                return True
+        return False
 
     def get_clickable_resources(self, resources: "list[Element]") -> "list[Element]":
         result = []
@@ -72,7 +85,7 @@ class UIManager:
         t.start()
         while len(errors) < 10:
             try:
-                line = q.get(timeout=3)  # or q.get(timeout=.1)
+                line = q.get(timeout=1)  # or q.get(timeout=.1)
             except Empty:
                 break
             else:
