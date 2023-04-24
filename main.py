@@ -34,7 +34,7 @@ def main():
 
     print(colorify(f"Found Running Application: {package_name}", C.green))
     while _STATE == "RUNNING":
-        resources = ui_manager.get_page_resources()
+        resources = ui_manager.get_page_package_resource()
         command = input("Please Enter your command:")
 
         command_args = command.split(" ")
@@ -53,6 +53,7 @@ def main():
                     continue
                 try:
                     fuzz(ui_manager, fields, button, wordfile)
+                    print("\nFuzzing succeed with no crash.")
                 except u2.exceptions.UiObjectNotFoundError as e:
                     print(
                         colorify("Cannot interact with selected user interface", C.red))
@@ -68,7 +69,7 @@ def main():
             return
 
         elif command_args[0].lower() == "list":
-            resources = ui_manager.get_page_resources()
+            resources = ui_manager.get_page_package_resource()
             for i in range(len(resources)):
                 re = resources[i]
                 print(f"{i}) {re.attrib['resource-id']}")
@@ -126,7 +127,7 @@ def fuzz(ui: UIManager, fields, button, wordfile: IO):
             field_ui = ui.get_ui_from_resource(field)
             print(
                 f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
-
+            field_ui.clear_text()
             field_ui.send_keys(formatted_word)
         print(f"Fuzzing selected fields with {formatted_word}\n")
         button_ui = ui.get_ui_from_resource(button)
@@ -137,6 +138,8 @@ def fuzz(ui: UIManager, fields, button, wordfile: IO):
             for err in errors:
                 print(colorify(err, C.red))
             print(colorify("\n--------------------------------", C.red))
+        elif not ui.session.exists():
+            raise Exception("Application crashed")
         else:
             print(colorify("No error found.", C.green))
         print("===================================================\n")
