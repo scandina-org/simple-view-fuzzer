@@ -28,7 +28,7 @@ def main():
     _STATE = "RUNNING"
     time.sleep(1)
 
-    print("Welcome to Auto-fuzzer")
+    print("Welcome to Simple View Fuzzer")
     print("type " + colorify("help", C.orange) + " to get started")
     ui_manager = UIManager(package_name)
 
