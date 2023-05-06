@@ -3,7 +3,7 @@ Requirements
 2. Make sure that python is installed.
 3. Make sure that the APK file that you want to test is installed in the Emulator.
 
-How to run auto-fuzzer
+How to run Simple View Fuzzer
 1. Run "pip install -r requirements.txt" (on first run)
 2. Run "python ./main.py {package_name}" or "python ./main.py {path_to_apk}"
     examples:
