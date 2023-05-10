@@ -10,6 +10,7 @@ from ui_manager import UIManager
 import sys
 from androguard.core.bytecodes import apk
 from colorify import *
+import subprocess
 
 
 WORD_FILES_DIR = "wordfiles"
@@ -24,6 +25,7 @@ def main():
     package_name = sys.argv[1]
     if package_name[-4:] == ".apk":
         a = apk.APK(package_name)
+        subprocess.run(['adb', 'install', package_name])
         package_name = a.get_package()
     _STATE = "RUNNING"
     time.sleep(1)
@@ -52,7 +54,7 @@ def main():
                           colorify('help', C.orange))
                     continue
                 try:
-                    fuzz(ui_manager, fields, button, wordfile)
+                    fuzz(ui_manager, fields, button, wordfile, "--go-back" in command_args)
                     print("\nFuzzing succeed with no crash.")
                 except u2.exceptions.UiObjectNotFoundError as e:
                     print(
@@ -119,7 +121,7 @@ def get_fuzz_options(args):
         return {"wordlist": wordlist_inputs, "button_indx": button_inputs, "field_indx": field_inputs}
 
 
-def fuzz(ui: UIManager, fields, button, wordfile: IO):
+def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack):
     words = wordfile.readlines()
     for word in words:
         formatted_word = word.rstrip('\r\n')
@@ -143,6 +145,8 @@ def fuzz(ui: UIManager, fields, button, wordfile: IO):
         else:
             print(colorify("No error found.", C.green))
         print("===================================================\n")
+        if isGoBack:
+            ui.go_back()
 
 
 def list_word_files():
@@ -152,10 +156,10 @@ def list_word_files():
 def print_help_text():
     print(colorify("\nlist", C.cyan) +
           "\n\tget all available fuzzable fields in the current page along with the action button")
-    print(colorify("\nfuzz -f [fields] -w [wordlist] -b [button]", C.cyan) +
+    print(colorify("\nfuzz -f [fields] -w [wordlist] -b [button] (--go-back)", C.cyan) +
           "\n\tfuzz through all the specified fields with the wordlist")
-    print("\n\tfor example: fuzz -f 1 2 -w ./dummies.txt -b a")
-    print("\tThis command will fuzz through the the first and second fields from the 'list' command with the 'dummies.txt' wordlist and uses the the first button from the 'list' command")
+    print("\n\tfor example: fuzz -f 1 2 -w ./dummies.txt -b 3")
+    print("\tThis command will fuzz through the the first and second fields from the 'list' command with the 'dummies.txt' wordlist and uses the the third element from the 'list' command as a submit button")
     print(colorify("\nlaunch", C.cyan))
     print("\n\tlaunch or relaunch target package")
 
