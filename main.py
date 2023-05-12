@@ -11,12 +11,12 @@ import sys
 from androguard.core.bytecodes import apk
 from colorify import *
 import subprocess
+import pandas as pd
 
 
 WORD_FILES_DIR = "wordfiles"
 if sys.platform == 'win32':
     init_colorify()
-
 
 def main():
     if len(sys.argv) <= 1:
@@ -54,14 +54,22 @@ def main():
                           colorify('help', C.orange))
                     continue
                 try:
-                    fuzz(ui_manager, fields, button, wordfile, "--go-back" in command_args)
+                    fuzz(ui_manager, fields, button, wordfile, "--go-back" in command_args, "--real-time" in command_args)
                     print("\nFuzzing succeed with no crash.")
+                    res = pd.read_csv('result.csv')
+                    print(colorify("Logs Count", C.yellow))
+                    print(res.to_string(index=False) + "\n")
                 except u2.exceptions.UiObjectNotFoundError as e:
                     print(
                         colorify("Cannot interact with selected user interface", C.red))
                     print("Application may have crashed.")
                     print("type 'launch' to relaunch the package.")
+                    res = pd.read_csv('result.csv')
+                    print(colorify("Logs Count", C.yellow))
+                    print(res.to_string(index=False) + "\n")
                     continue
+                    
+                    
 
             else:
                 print("Invalid command, check " + colorify('help', C.orange))
@@ -116,38 +124,48 @@ def get_fuzz_options(args):
             field_inputs = temp_field_inputs[:next_index]
 
         wordlist_inputs = args[w_index + 1]
-        print({"wordlist": wordlist_inputs,
-              "button_indx": button_inputs, "field_indx": field_inputs})
+        # print({"wordlist": wordlist_inputs,
+        #       "button_indx": button_inputs, "field_indx": field_inputs})
         return {"wordlist": wordlist_inputs, "button_indx": button_inputs, "field_indx": field_inputs}
 
 
-def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack):
+def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack, isRealTime):
     words = wordfile.readlines()
+
+    total_headers = ['input', 'info_logs', 'debug_logs', 'error_logs', 'warning_logs', 'fatal_logs']
+    csv_row = ','.join(map(str, total_headers))
+
+    with open('result.csv', mode='w') as file:
+        file.write(csv_row + '\n')
+        
+    old_logs = ui.get_error_log()
+
+    if isRealTime:
+        print('\t'.join(total_headers))
+
     for word in words:
         formatted_word = word.rstrip('\r\n')
         for field in fields:
             field_ui = ui.get_ui_from_resource(field)
-            print(
-                f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
+            # print(
+            #     f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
             field_ui.clear_text()
             field_ui.send_keys(formatted_word)
-        print(f"Fuzzing selected fields with {formatted_word}\n")
+        # print(f"Fuzzing selected fields with {formatted_word}\n")
         button_ui = ui.get_ui_from_resource(button)
-        button_ui.click()
-        errors = ui.get_error_log()
-        if (len(errors) > 0):
-            print(colorify("-----------ERROR FOUND----------\n", C.red))
-            for err in errors:
-                print(colorify(err, C.red))
-            print(colorify("\n--------------------------------", C.red))
-        elif not ui.session.exists():
-            raise Exception("Application crashed")
-        else:
-            print(colorify("No error found.", C.green))
-        print("===================================================\n")
+        button_ui.click()   
+        logs = ui.get_error_log()
+        result = [int(x) - int(y) for x, y in zip(logs, old_logs)]
+        old_logs = logs[:]
+        logs.insert(0, formatted_word)
+        result.insert(0, formatted_word)
+
+        csv_row = ','.join(map(str, result))
+        with open('result.csv', mode='a') as file:
+            file.write(csv_row + '\n')
+
         if isGoBack:
             ui.go_back()
-
 
 def list_word_files():
     return [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
