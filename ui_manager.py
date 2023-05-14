@@ -112,11 +112,14 @@ class UIManager:
         f_args = ['adb', 'shell', 'logcat', '*:F', '-b',
                 'main,crash', '--pid', str(process_id)]
         commands = [i_args, d_args, e_args, w_args, f_args]
+        types = ["info", "debug", "error", "warning", "fatal"]
 
         line_counts = []
         for command in commands:
+            type = types[commands.index(command)]
             output, _ = self.run_command(command, timeout=1)
             with open('logs.txt', mode='a') as file:
+                file.write(type + '\n')
                 file.write(output + '\n\n')
             line_count = len(output.splitlines())
             line_counts.append(line_count)

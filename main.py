@@ -59,6 +59,7 @@ def main():
                     res = pd.read_csv('result.csv')
                     print(colorify("Logs Count", C.yellow))
                     print(res.to_string(index=False) + "\n")
+                    print("Full Result in result.csv")
                 except u2.exceptions.UiObjectNotFoundError as e:
                     print(
                         colorify("Cannot interact with selected user interface", C.red))
@@ -67,6 +68,7 @@ def main():
                     res = pd.read_csv('result.csv')
                     print(colorify("Logs Count", C.yellow))
                     print(res.to_string(index=False) + "\n")
+                    print("Full Result in result.csv")
                     continue
                     
                     
@@ -132,9 +134,10 @@ def get_fuzz_options(args):
 def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack, isRealTime):
     words = wordfile.readlines()
 
-    total_headers = ['input', 'info_logs', 'debug_logs', 'error_logs', 'warning_logs', 'fatal_logs']
+    total_headers = ['input', 'info_logs', 'debug_logs', 'error_logs', 'warning_logs', 'fatal_logs', 'resource_count', 'resource_word_count', 'remark']
     csv_row = ','.join(map(str, total_headers))
-
+    
+    
     with open('result.csv', mode='w') as file:
         file.write(csv_row + '\n')
         
@@ -144,11 +147,14 @@ def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack, isRealTime):
         print('\t'.join(total_headers))
 
     for word in words:
+
         formatted_word = word.rstrip('\r\n')
+
+        with open('logs.txt', mode='a') as file:
+            file.write("input:" + formatted_word + '\n')
+            
         for field in fields:
             field_ui = ui.get_ui_from_resource(field)
-            # print(
-            #     f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
             field_ui.clear_text()
             field_ui.send_keys(formatted_word)
         # print(f"Fuzzing selected fields with {formatted_word}\n")
@@ -156,16 +162,42 @@ def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack, isRealTime):
         button_ui.click()   
         logs = ui.get_error_log()
         result = [int(x) - int(y) for x, y in zip(logs, old_logs)]
+
+        if all(num < 0 for num in result):
+            result = [0] * len(result)
+
+        if isGoBack:
+            ui.go_back()
+
+        resources = ui.get_page_package_resource()
+        # Extract text from XML elements and store them in a list
+        entries = [element.get('resource-id') for element in resources if element.get('resource-id') is not None]
+
+        # Length of the list
+        list_length = len(entries)
+
+        entries = [element.get('text') for element in resources if element.get('text') is not None]
+        # Word count of all entries combined
+        word_count = sum(len(entry.split()) for entry in entries if entry is not None)
+
         old_logs = logs[:]
-        logs.insert(0, formatted_word)
+
         result.insert(0, formatted_word)
+        result.append(list_length)
+        result.append(word_count)
+
+        # Check if all values except 'input' are zero
+        if all(entry == 0 for entry in result[1:]):
+            result.append('Possible Crash')
+        else:
+            result.append('N/A')
+
 
         csv_row = ','.join(map(str, result))
         with open('result.csv', mode='a') as file:
             file.write(csv_row + '\n')
 
-        if isGoBack:
-            ui.go_back()
+        
 
 def list_word_files():
     return [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
