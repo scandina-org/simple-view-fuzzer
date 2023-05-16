@@ -7,6 +7,7 @@ from xml.dom.minidom import Element
 import xml.etree.ElementTree as ET
 import uiautomator2 as u2
 from uiautomator2 import Direction
+import signal
 
 
 class UIManager:
@@ -72,23 +73,55 @@ class UIManager:
             queue.put(line.decode().strip())
         out.close()
 
+    def run_command(self, command, timeout=3):
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return stdout.decode(), stderr.decode()
+        except subprocess.TimeoutExpired:
+            process.send_signal(signal.SIGTERM)  # Send SIGTERM signal to terminate the process
+            try:
+                stdout, stderr = process.communicate()
+                return stdout.decode(), stderr.decode()
+            except:
+                return None, None  # Return None for stdout and stderr when an error occurs during the second communicate()
+
+    def run_command(self, command, timeout=1):
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            return stdout.decode(), stderr.decode()
+        except subprocess.TimeoutExpired:
+            process.send_signal(signal.SIGTERM)  # Send SIGTERM signal to terminate the process
+            try:
+                stdout, stderr = process.communicate()
+                return stdout.decode(), stderr.decode()
+            except:
+                return None, None  # Return None for stdout and stderr when an error occurs during the second communicate()
+
     def get_error_log(self):
         process_id = self.session._pidof_app(self.package_name)
-        args = ['adb', 'shell', 'logcat', '*:E', '-b',
+        i_args = ['adb', 'shell', 'logcat', '*:I', '-b',
                 'main,crash', '--pid', str(process_id)]
-        adb_process = subprocess.Popen(
-            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-        errors = []
-        q = Queue()
-        t = Thread(target=self.enqueue_output, args=(adb_process.stdout, q))
-        t.daemon = True  # thread dies with the program
-        t.start()
-        while len(errors) < 10:
-            try:
-                line = q.get(timeout=1)  # or q.get(timeout=.1)
-            except Empty:
-                break
-            else:
-                errors.append(line)
-        adb_process.terminate()
-        return errors
+        d_args = ['adb', 'shell', 'logcat', '*:D', '-b',
+                'main,crash', '--pid', str(process_id)]
+        e_args = ['adb', 'shell', 'logcat', '*:E', '-b',
+                'main,crash', '--pid', str(process_id)]
+        w_args = ['adb', 'shell', 'logcat', '*:W', '-b',
+                'main,crash', '--pid', str(process_id)]
+        f_args = ['adb', 'shell', 'logcat', '*:F', '-b',
+                'main,crash', '--pid', str(process_id)]
+        commands = [i_args, d_args, e_args, w_args, f_args]
+        types = ["info", "debug", "error", "warning", "fatal"]
+
+        line_counts = []
+        for command in commands:
+            type = types[commands.index(command)]
+            output, _ = self.run_command(command, timeout=1)
+            with open('logs.txt', mode='a') as file:
+                file.write(type + '\n')
+                file.write(output + '\n\n')
+            line_count = len(output.splitlines())
+            line_counts.append(line_count)
+
+        return line_counts

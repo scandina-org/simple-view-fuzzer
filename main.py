@@ -10,12 +10,13 @@ from ui_manager import UIManager
 import sys
 from androguard.core.bytecodes import apk
 from colorify import *
+import subprocess
+import pandas as pd
 
 
 WORD_FILES_DIR = "wordfiles"
 if sys.platform == 'win32':
     init_colorify()
-
 
 def main():
     if len(sys.argv) <= 1:
@@ -24,6 +25,7 @@ def main():
     package_name = sys.argv[1]
     if package_name[-4:] == ".apk":
         a = apk.APK(package_name)
+        subprocess.run(['adb', 'install', package_name])
         package_name = a.get_package()
     _STATE = "RUNNING"
     time.sleep(1)
@@ -52,14 +54,24 @@ def main():
                           colorify('help', C.orange))
                     continue
                 try:
-                    fuzz(ui_manager, fields, button, wordfile)
+                    fuzz(ui_manager, fields, button, wordfile, "--go-back" in command_args, "--real-time" in command_args)
                     print("\nFuzzing succeed with no crash.")
+                    res = pd.read_csv('result.csv')
+                    print(colorify("Logs Count", C.yellow))
+                    print(res.to_string(index=False) + "\n")
+                    print("Full Result in result.csv")
                 except u2.exceptions.UiObjectNotFoundError as e:
                     print(
                         colorify("Cannot interact with selected user interface", C.red))
                     print("Application may have crashed.")
                     print("type 'launch' to relaunch the package.")
+                    res = pd.read_csv('result.csv')
+                    print(colorify("Logs Count", C.yellow))
+                    print(res.to_string(index=False) + "\n")
+                    print("Full Result in result.csv")
                     continue
+                    
+                    
 
             else:
                 print("Invalid command, check " + colorify('help', C.orange))
@@ -114,36 +126,78 @@ def get_fuzz_options(args):
             field_inputs = temp_field_inputs[:next_index]
 
         wordlist_inputs = args[w_index + 1]
-        print({"wordlist": wordlist_inputs,
-              "button_indx": button_inputs, "field_indx": field_inputs})
+        # print({"wordlist": wordlist_inputs,
+        #       "button_indx": button_inputs, "field_indx": field_inputs})
         return {"wordlist": wordlist_inputs, "button_indx": button_inputs, "field_indx": field_inputs}
 
 
-def fuzz(ui: UIManager, fields, button, wordfile: IO):
+def fuzz(ui: UIManager, fields, button, wordfile: IO, isGoBack, isRealTime):
     words = wordfile.readlines()
+
+    total_headers = ['input', 'info_logs', 'debug_logs', 'error_logs', 'warning_logs', 'fatal_logs', 'resource_count', 'resource_word_count', 'remark']
+    csv_row = ','.join(map(str, total_headers))
+    
+    
+    with open('result.csv', mode='w') as file:
+        file.write(csv_row + '\n')
+        
+    old_logs = ui.get_error_log()
+
+    if isRealTime:
+        print('\t'.join(total_headers))
+
     for word in words:
+
         formatted_word = word.rstrip('\r\n')
+
+        with open('logs.txt', mode='a') as file:
+            file.write("input:" + formatted_word + '\n')
+            
         for field in fields:
             field_ui = ui.get_ui_from_resource(field)
-            print(
-                f"Filling {field_ui.info['resourceName']} with: {formatted_word}\n")
             field_ui.clear_text()
             field_ui.send_keys(formatted_word)
-        print(f"Fuzzing selected fields with {formatted_word}\n")
+        # print(f"Fuzzing selected fields with {formatted_word}\n")
         button_ui = ui.get_ui_from_resource(button)
-        button_ui.click()
-        errors = ui.get_error_log()
-        if (len(errors) > 0):
-            print(colorify("-----------ERROR FOUND----------\n", C.red))
-            for err in errors:
-                print(colorify(err, C.red))
-            print(colorify("\n--------------------------------", C.red))
-        elif not ui.session.exists():
-            raise Exception("Application crashed")
-        else:
-            print(colorify("No error found.", C.green))
-        print("===================================================\n")
+        button_ui.click()   
+        logs = ui.get_error_log()
+        result = [int(x) - int(y) for x, y in zip(logs, old_logs)]
 
+        if all(num < 0 for num in result):
+            result = [0] * len(result)
+
+        if isGoBack:
+            ui.go_back()
+
+        resources = ui.get_page_package_resource()
+        # Extract text from XML elements and store them in a list
+        entries = [element.get('resource-id') for element in resources if element.get('resource-id') is not None]
+
+        # Length of the list
+        list_length = len(entries)
+
+        entries = [element.get('text') for element in resources if element.get('text') is not None]
+        # Word count of all entries combined
+        word_count = sum(len(entry.split()) for entry in entries if entry is not None)
+
+        old_logs = logs[:]
+
+        result.insert(0, formatted_word)
+        result.append(list_length)
+        result.append(word_count)
+
+        # Check if all values except 'input' are zero
+        if all(entry == 0 for entry in result[1:]):
+            result.append('Possible Crash')
+        else:
+            result.append('N/A')
+
+
+        csv_row = ','.join(map(str, result))
+        with open('result.csv', mode='a') as file:
+            file.write(csv_row + '\n')
+
+        
 
 def list_word_files():
     return [os.path.join(WORD_FILES_DIR, path) for path in os.listdir(WORD_FILES_DIR)]
@@ -152,10 +206,10 @@ def list_word_files():
 def print_help_text():
     print(colorify("\nlist", C.cyan) +
           "\n\tget all available fuzzable fields in the current page along with the action button")
-    print(colorify("\nfuzz -f [fields] -w [wordlist] -b [button]", C.cyan) +
+    print(colorify("\nfuzz -f [fields] -w [wordlist] -b [button] (--go-back)", C.cyan) +
           "\n\tfuzz through all the specified fields with the wordlist")
-    print("\n\tfor example: fuzz -f 1 2 -w ./dummies.txt -b a")
-    print("\tThis command will fuzz through the the first and second fields from the 'list' command with the 'dummies.txt' wordlist and uses the the first button from the 'list' command")
+    print("\n\tfor example: fuzz -f 1 2 -w ./dummies.txt -b 3")
+    print("\tThis command will fuzz through the the first and second fields from the 'list' command with the 'dummies.txt' wordlist and uses the the third element from the 'list' command as a submit button")
     print(colorify("\nlaunch", C.cyan))
     print("\n\tlaunch or relaunch target package")
 
